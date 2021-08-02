@@ -15,8 +15,10 @@ using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
 
 using Microsoft.Graphics.Canvas.UI.Xaml;
+using Microsoft.Graphics.Canvas.Text;
 
 using BucketStrategy.DataTypes;
+using System.Numerics;
 
 namespace BucketStrategy.Charting
 {
@@ -24,32 +26,252 @@ namespace BucketStrategy.Charting
     {
         private List<DataPoint> m_data;
 
+        private float m_marginLeft;
+        private float m_marginRight;
+        private float m_marginTop;
+        private float m_marginBottom;
+
+        private Color m_majorAxisColor;
+        private Color m_minorAxisColor;
+        private Color m_backgroundColor;
+
+        private float m_majorAxisWidth;
+        private float m_minorAxisWidth;
+
+        private float m_xAxisTickLength;
+        private float m_yAxisTickLength;
+
+        private float m_chartMaxY;
+        private float m_chartMinY;
+
+        private float m_unitWidth;
+
+        CanvasTextFormat m_xLabelFormat;
+        CanvasTextFormat m_yLabelFormat;
+
         public CandlestickChart()
         {
             this.InitializeComponent();
 
+            m_marginLeft = 60.0f;
+            m_marginRight = 25.0f;
+            m_marginTop = 25.0f;
+            m_marginBottom = 60.0f;
 
+            m_majorAxisColor = Colors.Black;
+            m_minorAxisColor = Colors.Gray;
+            m_backgroundColor = Colors.Azure;
+
+            m_majorAxisWidth = 3.0f;
+            m_minorAxisWidth = 2.0f;
+
+            m_xAxisTickLength = 5.0f;
+            m_yAxisTickLength = 7.5f;
+
+            m_unitWidth = 0.0f;
 
             m_data = new List<DataPoint>();
             AddData();
+
+            m_xLabelFormat = new CanvasTextFormat();
+            m_xLabelFormat.FontFamily = "Segoe UI";
+            m_xLabelFormat.FontSize = 12.0f;
+            m_xLabelFormat.FontStretch = Windows.UI.Text.FontStretch.Normal;
+            m_xLabelFormat.FontStyle = Windows.UI.Text.FontStyle.Normal;
+            m_xLabelFormat.HorizontalAlignment = CanvasHorizontalAlignment.Left;
+            m_xLabelFormat.VerticalAlignment = CanvasVerticalAlignment.Center;
+
+            m_yLabelFormat = new CanvasTextFormat();
+            m_yLabelFormat.FontFamily = "Segoe UI";
+            m_yLabelFormat.FontSize = 12.0f;
+            m_yLabelFormat.FontStretch = Windows.UI.Text.FontStretch.Normal;
+            m_yLabelFormat.FontStyle = Windows.UI.Text.FontStyle.Normal;
+            m_yLabelFormat.HorizontalAlignment = CanvasHorizontalAlignment.Right;
+            m_yLabelFormat.VerticalAlignment = CanvasVerticalAlignment.Center;
         }
 
         private void CanvasControl_Draw(CanvasControl sender, CanvasDrawEventArgs args)
         {
-            DrawXAxisTicksAndLabels(sender, args);
-            DrawYAxisTicksLabelsAndData(sender, args);
+            DrawBackground(sender, args);
+            DrawAxes(sender, args);
+            DrawXTicksAndLabels(sender, args);
+            DrawYTicksLabelsAndData(sender, args);
+            DrawCandleSticks(sender, args);
         }
 
-        private void DrawXAxisTicksAndLabels(CanvasControl sender, CanvasDrawEventArgs args)
+        private void DrawBackground(CanvasControl sender, CanvasDrawEventArgs args)
         {
-            args.DrawingSession.DrawEllipse(155, 115, 80, 30, Colors.Black, 3);
-            args.DrawingSession.DrawText("Hello, world!", 100, 100, Colors.Yellow);
-
+            args.DrawingSession.FillRectangle(
+                m_marginLeft,
+                m_marginTop,
+                (float)this.ActualWidth - (m_marginRight + m_marginLeft),
+                (float)this.ActualHeight - (m_marginBottom + m_marginTop),
+                m_backgroundColor
+            );
         }
 
-        private void DrawYAxisTicksLabelsAndData(CanvasControl sender, CanvasDrawEventArgs args)
+        private void DrawAxes(CanvasControl sender, CanvasDrawEventArgs args)
         {
+            // y-axis
+            args.DrawingSession.DrawLine(
+                m_marginLeft,
+                m_marginTop,
+                m_marginLeft,
+                (float)this.ActualHeight - m_marginBottom,
+                m_majorAxisColor,
+                m_majorAxisWidth
+            );
 
+            // x-axis
+            args.DrawingSession.DrawLine(
+                m_marginLeft,
+                (float)this.ActualHeight - m_marginBottom,
+                (float)this.ActualWidth - m_marginRight,
+                (float)this.ActualHeight - m_marginBottom,
+                m_majorAxisColor,
+                m_majorAxisWidth
+            );
+        }
+
+        private void DrawXTicksAndLabels(CanvasControl sender, CanvasDrawEventArgs args)
+        {
+            float chartWidth = (float)this.ActualWidth - (m_marginRight + m_marginLeft);
+
+            // Define the spacing between candlesticks to be 1 unit
+            // Define the width of each candlestick to be 3 units
+            // Total units is (4 * # of candlesticks) + 1 to account for extra spacing at the end
+            m_unitWidth = chartWidth / ((4 * m_data.Count) + 1);
+            float tickSpacing = 4 * m_unitWidth;
+
+            // Draw each tick
+            float x = m_marginLeft + m_unitWidth + (1.5f * m_unitWidth);
+            float y1 = (float)this.ActualHeight - m_marginBottom;
+            float y2 = y1 + m_xAxisTickLength;
+            Matrix3x2 initTransform = args.DrawingSession.Transform;
+
+            foreach (DataPoint dp in m_data)
+            {
+                args.DrawingSession.DrawLine(x, y1, x, y2, m_majorAxisColor);
+
+                args.DrawingSession.Transform = initTransform * Matrix3x2.CreateRotation((float)Math.PI / 3, new Vector2(x, y2 + 3.0f));
+                args.DrawingSession.DrawText(dp.DateTime.ToString("h:mm tt"), x, y2 + 3.0f, m_majorAxisColor, m_xLabelFormat);
+
+
+                args.DrawingSession.Transform = initTransform;
+                x += tickSpacing;
+            }
+        }
+
+        private void DrawYTicksLabelsAndData(CanvasControl sender, CanvasDrawEventArgs args)
+        {
+            // Compute min/max
+            m_chartMaxY = m_data.Select(s => s.High).Max();
+            m_chartMinY = m_data.Select(s => s.Low).Min();
+
+            // Adjust up/down by 5% of the difference between min/max
+            float chartYDiff = m_chartMaxY - m_chartMinY;
+            m_chartMaxY += (0.05f * chartYDiff);
+            m_chartMinY -= (0.05f * chartYDiff);
+
+            // Find the order of magnitude of the difference between min/max and round down to 1...
+            //      ex. 0.01, 0.1, 1, 10, 100, etc
+            int power = (int)Math.Floor(Math.Log10(chartYDiff));
+            double order = Math.Pow(10.0f, power) / 10; // Drop the order of magnitude by 1 (Divide by 10)
+
+            // Determine appropriate tick difference - start with 2 * order
+            List<float> diffsToTry = new List<float>() { 2.0f, 3.0f, 4.0f, 5.0f, 10.0f, 15.0f, 20.0f };
+            float tickDiff = 0.0f;
+            float tickCount = 10.0f; // At most 10 ticks
+
+            foreach (float diff in diffsToTry)
+            {
+                tickDiff = (float)order * diff;
+                if (chartYDiff / tickDiff < tickCount)
+                    break;
+            }
+
+
+            int factor = 1;
+            while (tickDiff * factor < 1.0f)
+                factor *= 10;
+
+            // range 2.35 - 3.35
+            // tickDiff 0.2
+            // factor 10
+            // range -> 23.5 - 33.5
+            // tickDiff -> 2
+            int startValue = (int)(m_chartMinY * factor) + 1;
+            int tickDiffInt = (int)(tickDiff * factor);
+
+            if (startValue % tickDiffInt != 0)
+                startValue += (tickDiffInt - (startValue % tickDiffInt));
+
+            // Draw ticks starting at the bottom
+            float x0 = m_marginLeft;
+            float x1 = x0 - m_yAxisTickLength;
+
+            float yVal = (float)startValue / factor;
+
+            float xRight = (float)this.ActualWidth - m_marginRight;
+
+            for (float y = 0; yVal < m_chartMaxY; yVal += ((float)tickDiffInt / factor))
+            {
+                y = ChartYValueToPixels(yVal);
+
+                args.DrawingSession.DrawLine(x0, y, x1, y, m_majorAxisColor);
+
+                args.DrawingSession.DrawText(string.Format("{0:f1}", yVal), x1 - 3.0f, y, m_majorAxisColor, m_yLabelFormat);
+
+                // Draw minor lines
+                args.DrawingSession.DrawLine(x0, y, xRight, y, m_minorAxisColor);
+            }
+        }
+
+        private void DrawCandleSticks(CanvasControl sender, CanvasDrawEventArgs args)
+        {
+            float x = m_marginLeft + m_unitWidth;
+            float candlestickWidth = 3 * m_unitWidth;
+            float u4 = 4 * m_unitWidth;
+            float u1half = 1.5f * m_unitWidth;
+            float y1, y2;
+            Color color;
+
+            foreach (DataPoint dp in m_data)
+            {
+                // Draw a single line from high to low
+                x += u1half;
+
+                y1 = ChartYValueToPixels(dp.High);
+                y2 = ChartYValueToPixels(dp.Low);
+
+                args.DrawingSession.DrawLine(x, y1, x, y2, Colors.Black, 1.0f);
+
+                x -= u1half;
+
+                // Draw rectangle
+                y1 = ChartYValueToPixels(dp.Open);
+                y2 = ChartYValueToPixels(dp.Close);
+                color = (dp.Open < dp.Close) ? Colors.Green : Colors.Red;
+
+                Rect rect = new Rect(
+                    x,
+                    Math.Min(y1, y2),
+                    candlestickWidth,
+                    Math.Abs(y2 - y1)
+                );
+
+                args.DrawingSession.FillRectangle(rect, color);
+                args.DrawingSession.DrawRectangle(rect, Colors.Black, 1.0f);
+
+                x += u4;
+            }
+        }
+
+        private float ChartYValueToPixels(float y)
+        {
+            // margin top + chart height - percent up the y-axis
+            float chartHeight = (float)this.ActualHeight - (m_marginTop + m_marginBottom);
+            return m_marginTop + chartHeight - (((y - m_chartMinY) / (m_chartMaxY - m_chartMinY)) * chartHeight);
         }
 
         private void CanvasControl_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -66,10 +288,6 @@ namespace BucketStrategy.Charting
         {
 
         }
-
-
-
-
 
 
 
@@ -149,7 +367,7 @@ namespace BucketStrategy.Charting
             m_data.Add(new DataPoint("MSFT", new DateTime(2021, 07, 26, 10, 41, 00), 287.565f, 287.58f, 287.5f, 287.5f, 1045));
             m_data.Add(new DataPoint("MSFT", new DateTime(2021, 07, 26, 10, 42, 00), 287.5f, 287.52f, 287.475f, 287.495f, 707));
             m_data.Add(new DataPoint("MSFT", new DateTime(2021, 07, 26, 10, 43, 00), 287.43f, 287.45f, 287.27f, 287.29f, 1359));
-            m_data.Add(new DataPoint("MSFT", new DateTime(2021, 07, 26, 10, 44, 00), 287.32f, 287.34f, 287.27f, 287.34f, 912));
+    /*        m_data.Add(new DataPoint("MSFT", new DateTime(2021, 07, 26, 10, 44, 00), 287.32f, 287.34f, 287.27f, 287.34f, 912));
             m_data.Add(new DataPoint("MSFT", new DateTime(2021, 07, 26, 10, 45, 00), 287.29f, 287.29f, 287.07f, 287.19f, 1056));
             m_data.Add(new DataPoint("MSFT", new DateTime(2021, 07, 26, 10, 46, 00), 287.19f, 287.19f, 287.015f, 287.12f, 1615));
             m_data.Add(new DataPoint("MSFT", new DateTime(2021, 07, 26, 10, 47, 00), 287.05f, 287.12f, 287f, 287.08f, 878));
@@ -465,6 +683,7 @@ namespace BucketStrategy.Charting
             m_data.Add(new DataPoint("MSFT", new DateTime(2021, 07, 26, 15, 57, 00), 289.065f, 289.07f, 288.91f, 288.92f, 5966));
             m_data.Add(new DataPoint("MSFT", new DateTime(2021, 07, 26, 15, 58, 00), 288.915f, 289.07f, 288.915f, 289.06f, 6799));
             m_data.Add(new DataPoint("MSFT", new DateTime(2021, 07, 26, 15, 59, 00), 289.1f, 289.2f, 289.055f, 289.12f, 6850));
+        */
         }
 
 
